@@ -16,7 +16,8 @@ To compute the albedo of a flat snow surface with SSA 20 kg/m2 at 800 nm and wit
 import numpy as np
 import snowoptics
 
-print(snowoptics.albedo_KZ04(wavelengths=800e-9, sza=np.deg2rad(45), ssa=20, r_difftot=0.1))
+print(snowoptics.albedo_KZ04(wavelengths=800e-9, sza=np.deg2rad(45),
+                             ssa=20, r_difftot=0.1))
 ```
 
 And with some 100 ng/g of black carbon (calculation at 400 nm):
@@ -25,16 +26,20 @@ And with some 100 ng/g of black carbon (calculation at 400 nm):
 import numpy as np
 import snowoptics
 
-print(snowoptics.albedo_KZ04(wavelengths=400e-9, sza=np.deg2rad(45), ssa=20, r_difftot=0.1, {'BC': 100e-9}))
+print(snowoptics.albedo_KZ04(wavelengths=400e-9, sza=np.deg2rad(45),
+                             ssa=20, r_difftot=0.1, {'BC': 100e-9}))
 ```
 
 To compute albedo over a tilted surface (10° south facing) as described in [Picard et al. submitted]()
 
 ```python
-print(snowoptics.albedo_P20_slope(wavelengths=800e-9, sza=np.deg2rad(45), saa=np.deg2rad(180), ssa=20, r_difftot=0.1, slope=np.deg2rad(10), aspect=np.deg2rad(180), model="small_slope"))
+print(snowoptics.albedo_P20_slope(wavelengths=800e-9, sza=np.deg2rad(45),
+                                  saa=np.deg2rad(180), ssa=20, r_difftot=0.1,
+                                  slope=np.deg2rad(10), aspect=np.deg2rad(180),
+                                  model="small_slope"))
 ```
 
-Intercative albedo calculations
+Interactive albedo calculations
 --------------------------------
 
 Lazy to code today? see the interactive webapp that provides most of snowoptics [snowslope](https://snowslope.pythonanywhere.com/)

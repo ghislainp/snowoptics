@@ -1,6 +1,5 @@
 language: python
 python:
-  - 3.5
   - 3.6
   - 3.7
   - 3.8
@@ -8,7 +7,6 @@ python:
 before_install:
   - pip install poetry
 install:
-  - peotry install
+  - poetry install
 script:
   - pytest
-

@@ -59,7 +59,9 @@ def albedo_direct_KZ04(wavelengths, sza, ssa, impurities=None, ni="p2016", B=def
 """
 
     alpha = compute_alpha(wavelengths, ssa, impurities=impurities, ni=ni, B=B, g=g)
-    R = np.exp(-np.sqrt(alpha) * 3.0 / 7 * (1 + 2 * np.cos(sza)))
+    cos_sza = np.cos(sza)
+    assert cos_sza >= 0  # a negative value is probably because sza is not in radian
+    R = np.exp(-np.sqrt(alpha) * 3.0 / 7 * (1 + 2 * cos_sza))
     return R
 
 
@@ -211,7 +213,7 @@ def albedo_P20_slope(wavelengths, sza, saa, ssa, r_difftot, slope, aspect, model
     if (not measured_difftot) and (model in ['DM', 'SM']):
         model_top = model[:-1] + 'T'  # swith to the equivalent model at the top of the hill
         albedo_top = albedo_P20_slope(wavelengths, sza, saa, ssa, r_difftot, slope, aspect, model_top,
-                                   measured_difftot=False, fixed_flat_albedo=fixed_flat_albedo, **kwargs)
+                                      measured_difftot=False, fixed_flat_albedo=fixed_flat_albedo, **kwargs)
 
         if model == "DM":
             if K > 0:
@@ -222,8 +224,10 @@ def albedo_P20_slope(wavelengths, sza, saa, ssa, r_difftot, slope, aspect, model
                 return np.nan
         elif model == "SM":
             if K > 0:
-                return albedo_top / (1 + (1 - V) * ((1 - r_difftot) * (K * alb_loc_dir + M * alb_dir) / (1 - M**2) + r_difftot * (V / (1 - M) * alb_diff - 1)))
-            elif r_difftot >0:
+                return albedo_top / (1 + (1 - V) *
+                                     ((1 - r_difftot) * (K * alb_loc_dir + M * alb_dir) / (1 - M**2) +
+                                      r_difftot * (V / (1 - M) * alb_diff - 1)))
+            elif r_difftot > 0:
                 return alb_diff
             else:
                 return np.nan

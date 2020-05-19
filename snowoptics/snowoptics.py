@@ -118,10 +118,9 @@ def compute_co_single_scattering_albedo(wavelengths, ssa, impurities=None, ni="p
         else:
             raise ValueError("Invalid species")
 
-        if density_impurities is None:
-            raise ValueError("No default density for the impurities '%s'" % species)
-
         if abs_impurities is not None:
+            if density_impurities is None:
+                raise ValueError("No default density for the impurities '%s'" % species)
             MAC = 6 * np.pi / wavelengths / density_impurities * np.abs(abs_impurities)
 
         cossalb += 2.0 / ssa * content_impurities * MAC

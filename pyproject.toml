@@ -8,6 +8,7 @@ license = "MIT"
 [tool.poetry.dependencies]
 python = ">=3.6"
 numpy = ">=1.10"
+scipy = ">=1.0"
 
 [tool.poetry.dev-dependencies]
 

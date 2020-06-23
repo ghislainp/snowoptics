@@ -1,12 +1,19 @@
 # -*- coding: utf-8 -*-
 #
-# Snowoptics (C) 2019 Ghislain Picard
+# Snowoptics (C) 2019-2020 Ghislain Picard
 #
 # MIT License
 #
+import datetime
 
 from .refractive_index import refice, refsoot_imag, refhulis_imag, refdust_imag, MAE_dust_caponi
 import numpy as np
+import scipy.optimize
+
+try:
+    import ephem
+except ImportError:
+    ephem = None
 
 
 # B=1.6 and g=0.85 are equivalent to b=4.3 found in Picard et al. 2009
@@ -196,6 +203,9 @@ def albedo_P20_slope(wavelengths, sza, saa, ssa, r_difftot, slope, aspect, model
 
     lsza = local_sza(sza, saa, slope, aspect)
 
+    if lsza >= np.pi / 2 or lsza < 0:
+        return np.nan
+
     if fixed_flat_albedo:
         alb_loc_dir = fixed_flat_albedo
         alb_dir = fixed_flat_albedo
@@ -304,3 +314,98 @@ def albedo_correction_with_slope2(albedo, difftot, sza, K, niteration=5):
         albedo_diff = np.maximum(albedo_diff, 0)
 
     return albedo_diff, albedo_diff**n
+
+
+def albedo_timeseries_correction(wavelengths, albedo, difftot, sza, saa, constrained, albedo_0=0.98):
+    """method to correct a timeseries of albedo, with given timeseries of difftot, timeseries of sza and saa
+
+    :param wavelengths: an array of wavelengths (meter)
+    :param albedo: timeseries of albedos. Must be a list of array or 2D array. The second dimension is the same as that of the wavelengths.
+    :param difftot: timeseries of diffuse over total ratios. Must be a list of array or 2D array. The second dimension is the same as that of the wavelengths.
+    :param sza: timeseries of solar zenith angle (radian). The length is equal to the first dimension of the albedo array.
+    :param saa: timeseries of solar aimuth angle (radian). The length is equal to the first dimension of the albedo array.
+    :param constrained: whether to use the constrained or unconstrained method (see Picard et al. 2020)
+
+    :returns: diffuse albedo, slope, aspect
+"""
+
+    def difference_function(params, *extras, return_model=False, constrained=False):
+        if constrained:
+            slope, aspect, multiplier, *adiff = params
+        else:
+            slope, aspect, *adiff = params
+
+        albedo, difftot, sza, saa, wls = extras
+
+        # time is the first dimension, wavelength is the second dimension
+        adiff = np.array(adiff)[None, :]
+
+        # local sza
+        coslsza = np.cos(sza) * np.cos(slope) + np.sin(sza) * np.sin(slope) * np.cos(saa - aspect)
+        K = coslsza / np.cos(sza)
+        n = 3. / 7 * (1 + 2 * coslsza)
+
+        model = (1 - difftot) * K[:, None] * adiff**n[:, None] + difftot * adiff
+        if return_model:
+            return model
+        elif constrained:
+            return np.concatenate((
+                np.ravel(model - albedo),
+                multiplier * (np.ravel(adiff)[(wls > 400e-9) & (wls < 500e-9)] - albedo_0)
+            ))
+        else:
+            return np.ravel(model - albedo)
+
+    def cost_function(*args, **kwargs):
+        return np.sum(difference_function(*args, **kwargs)**2)
+
+    albedo = np.array(albedo)
+    difftot = np.array(difftot)
+
+    # if albedo.shape != difftot.shape:
+    #    raise Exception("albedo and difftot array must have the same shape")
+
+    params0 = [0.001, np.pi, *np.mean(albedo, axis=0)]
+
+    if constrained:
+        result, cov, info, msg, ierr = scipy.optimize.leastsq(difference_function, params0,
+                                                              args=(albedo, difftot, sza, saa, wavelengths), full_output=True)
+    else:
+        constraints = ({'type': 'eq', 'fun': lambda params: params[2:][(wavelengths > 400e-9) & (wavelengths < 500e-9)] - albedo_0}, )
+        result = scipy.optimize.minimize(cost_function, params0,
+                                         args=(albedo, difftot, sza, saa, wavelengths), constraints=constraints)
+        result = result.x
+
+    albedo_diff = result[2:]
+
+    slope = result[0]
+    aspect = result[1]
+
+    if slope < 0:
+        slope = -slope
+        aspect += np.pi
+
+    return albedo_diff, slope, np.mod(aspect, 2 * np.pi)
+
+
+def compute_sun_position(lon, lat, dts):
+    """compute the position of the sun."""
+
+    if ephem is None:
+        raise Exception("The pyephem module must be installed to use this function")
+
+    o = ephem.Observer()
+    o.lat, o.long = str(lat), str(lon)
+
+    sza = []
+    saa = []
+
+    for dt in np.atleast_1d(dts):
+        if isinstance(dt, np.datetime64):
+            dt = datetime.datetime.utcfromtimestamp(dt.astype('O') / 1e9)
+        o.date = dt
+
+        sza.append(np.pi / 2 - float(ephem.Sun(o).alt))
+        saa.append(float(ephem.Sun(o).az))
+
+    return np.array(sza), np.array(saa)

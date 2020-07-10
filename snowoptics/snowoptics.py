@@ -371,7 +371,7 @@ def albedo_timeseries_correction(wavelengths, albedo, difftot, sza, saa, constra
         result, cov, info, msg, ierr = scipy.optimize.leastsq(difference_function, params0,
                                                               args=(albedo, difftot, sza, saa, wavelengths), full_output=True)
     else:
-        constraints = ({'type': 'eq', 'fun': lambda params: params[2:][(wavelengths > 400e-9) & (wavelengths < 500e-9)] - albedo_0}, )
+        constraints = ({'type': 'eq', 'fun': lambda params: params[2:][(wavelengths >= 400e-9) & (wavelengths <= 500e-9)] - albedo_0}, )
         result = scipy.optimize.minimize(cost_function, params0,
                                          args=(albedo, difftot, sza, saa, wavelengths), constraints=constraints)
         result = result.x

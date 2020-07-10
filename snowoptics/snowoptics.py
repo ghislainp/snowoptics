@@ -316,7 +316,7 @@ def albedo_correction_with_slope2(albedo, difftot, sza, K, niteration=5):
     return albedo_diff, albedo_diff**n
 
 
-def albedo_timeseries_correction(wavelengths, albedo, difftot, sza, saa, constrained, albedo_0=0.98):
+def albedo_timeseries_correction(wavelengths, albedo, difftot, sza, saa, constrained, wavelength_range_0=None, albedo_0=0.98):
     """method to correct a timeseries of albedo, with given timeseries of difftot, timeseries of sza and saa
 
     :param wavelengths: an array of wavelengths (meter)
@@ -325,9 +325,13 @@ def albedo_timeseries_correction(wavelengths, albedo, difftot, sza, saa, constra
     :param sza: timeseries of solar zenith angle (radian). The length is equal to the first dimension of the albedo array.
     :param saa: timeseries of solar aimuth angle (radian). The length is equal to the first dimension of the albedo array.
     :param constrained: whether to use the constrained or unconstrained method (see Picard et al. 2020)
+    :param wavelength_range_0: len-2 tuple with minimum and maximum wavelengths to use for the constraint, when constrained=True
+    :param albedo_0: albedo value to constrain, when constrained=True
 
     :returns: diffuse albedo, slope, aspect
 """
+    if wavelength_range_0 is None:
+        wavelength_range_0 = 400e-9, 500e-9
 
     def difference_function(params, *extras, return_model=False, constrained=False):
         if constrained:
@@ -351,7 +355,7 @@ def albedo_timeseries_correction(wavelengths, albedo, difftot, sza, saa, constra
         elif constrained:
             return np.concatenate((
                 np.ravel(model - albedo),
-                multiplier * (np.ravel(adiff)[(wls > 400e-9) & (wls < 500e-9)] - albedo_0)
+                multiplier * (np.ravel(adiff)[(wls >= wavelength_range_0[0]) & (wls <= wavelength_range_0[1])] - albedo_0)
             ))
         else:
             return np.ravel(model - albedo)
@@ -371,7 +375,8 @@ def albedo_timeseries_correction(wavelengths, albedo, difftot, sza, saa, constra
         result, cov, info, msg, ierr = scipy.optimize.leastsq(difference_function, params0,
                                                               args=(albedo, difftot, sza, saa, wavelengths), full_output=True)
     else:
-        constraints = ({'type': 'eq', 'fun': lambda params: params[2:][(wavelengths >= 400e-9) & (wavelengths <= 500e-9)] - albedo_0}, )
+        constraints = ({'type': 'eq', 
+                        'fun': lambda params: params[2:][(wavelengths >= wavelength_range_0[0]) & (wavelengths <= wavelength_range_0[1])] - albedo_0}, )
         result = scipy.optimize.minimize(cost_function, params0,
                                          args=(albedo, difftot, sza, saa, wavelengths), constraints=constraints)
         result = result.x

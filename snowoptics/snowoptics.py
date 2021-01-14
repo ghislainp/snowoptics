@@ -281,10 +281,17 @@ def albedo_P20_slope(wavelengths, sza, saa, ssa, r_difftot, slope, aspect, model
 
 def albedo_correction_without_slope(wavelengths, albedo, difftot, sza, albedo_0=0.98):
     """method to estimate slope parameters from one albedo spectrum, and to subsequently correct the albedo using the
-     estimated slope parameters"""
+     estimated slope parameters
+
+    :param wavelengths: wavelengths in meter
+    :param albedo: albedo spectrum. Must have the same size as wavelengths
+    :param difftot: difftot spectrum. Must have the same size as wavelengths
+    :param sza: tsolar zenith angle (radian).
+    :param albedo_0: target albedo in the visible range (400-550nm)
+"""
 
     n_approx = 3. / 7 * (1 + 2 * np.cos(sza))
-    mask = (wavelengths > 400) & (wavelengths < 550)
+    mask = (wavelengths > 400e-9) & (wavelengths < 550e-9)
 
     K = np.sum((1 - difftot[mask] * albedo_0) * (albedo[mask] - difftot[mask])) / np.sum((1 - difftot[mask])**2 * albedo_0**n_approx)
     return K, albedo_correction_with_slope(albedo, difftot, sza, K)

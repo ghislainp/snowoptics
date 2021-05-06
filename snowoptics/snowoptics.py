@@ -272,7 +272,7 @@ def albedo_P20_slope(wavelengths, sza, saa, ssa, r_difftot, slope, aspect, model
 
     try:
         len(alpha)
-        alpha[alpha < 0] = np.nan
+        alpha = np.where(alpha >= 0, alpha, np.nan)
     except TypeError:
         if alpha < 0:
             alpha = np.nan

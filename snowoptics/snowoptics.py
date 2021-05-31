@@ -185,25 +185,31 @@ def local_viewing_angle(theta_i, phi_i, theta_v, phi_v, slope, aspect):
     :param aspect: Slope aspect (radians)    
     """
     # Local incident zenith angle
-    mu_i = np.cos(theta_i) * np.cos(slope) + np.sin(theta_i) * np.sin(slope) * np.cos(phi_i - aspect)
-    if mu_i<0.000001:#Illumination rasante, instable
-        mu_i=np.nan 
-    # Local viewing zenith angle   
-    mu_v = np.cos(theta_v) * np.cos(slope) + np.sin(theta_v) * np.sin(slope) * np.cos(phi_v - aspect)
-    
-    theta_i_eff=np.arccos(mu_i)
-    theta_v_eff=np.arccos(mu_v)    
-    theta_v_eff=np.where(theta_v_eff>np.radians(90),np.nan,theta_v_eff)  # Remove part of the polar representation that correspond to an observer behind the slope
-    # Local relative azimuth angle (dumont et al.2011) 
-    mu_az_numerator = (np.cos(theta_v) * np.cos(theta_i) + \
-             np.sin(theta_v) * np.sin(theta_i)* np.cos(phi_v-phi_i)\
-                 - mu_i * mu_v )
-    mu_az_denominator=np.sin(theta_i_eff) * np.sin(theta_v_eff)
-    mu_az=np.where(mu_az_denominator!=0,np.divide(mu_az_numerator,mu_az_denominator),0) #When illumination or observator is at nadir (in the new referential), set RAA to zero
-    
-    np.clip(mu_az,-1,1,out=mu_az) #Garde fou qui prévient d'instabilités numérique étranges autour de -1 et 1
-    raa_eff=np.arccos(mu_az)
-    return theta_i_eff, theta_v_eff,raa_eff
+    mu_i = np.cos(theta_i) * np.cos(slope) + np.sin(theta_i) * \
+        np.sin(slope) * np.cos(phi_i - aspect)
+    if mu_i < 0.000001:  # Illumination rasante, instable
+        mu_i = np.nan
+    # Local viewing zenith angle
+    mu_v = np.cos(theta_v) * np.cos(slope) + np.sin(theta_v) * \
+        np.sin(slope) * np.cos(phi_v - aspect)
+
+    theta_i_eff = np.arccos(mu_i)
+    theta_v_eff = np.arccos(mu_v)
+    # Remove part of the polar representation that correspond to an observer behind the slope
+    theta_v_eff = np.where(theta_v_eff > np.radians(90), np.nan, theta_v_eff)
+    # Local relative azimuth angle (dumont et al.2011)
+    mu_az_numerator = (np.cos(theta_v) * np.cos(theta_i) +
+                       np.sin(theta_v) * np.sin(theta_i) * np.cos(phi_v-phi_i)
+                       - mu_i * mu_v)
+    mu_az_denominator = np.sin(theta_i_eff) * np.sin(theta_v_eff)
+    # When illumination or observator is at nadir (in the new referential), set RAA to zero
+    mu_az = np.where(mu_az_denominator != 0, np.divide(
+        mu_az_numerator, mu_az_denominator), 0)
+
+    # Garde fou qui prévient d'instabilités numérique étranges autour de -1 et 1
+    np.clip(mu_az, -1, 1, out=mu_az)
+    raa_eff = np.arccos(mu_az)
+    return theta_i_eff, theta_v_eff, raa_eff
 
 def albedo_direct_KZ04_slope(wavelengths, sza, ssa, impurities=None, ni="p2016", B=default_B, g=default_g, slope=0, aspect=0, saa=0):
     """compute direct albedo with AART include change of local sza due to slope"""
@@ -456,16 +462,15 @@ def compute_sun_position(lon, lat, dts):
     return np.array(sza), np.array(saa)
     
 
-
-def G(theta): #Or k0 for kokha
+def G(theta):  # Or k0 for kokha
     """Compute the function G of malinka 2016 (also named K in kokhanovsky formalisme)
     :param theta: angle(radians)
     """
-    G= (3./7.)*(1+2*np.cos(theta)) 
+    G = (3./7.)*(1+2*np.cos(theta))
     return G
-    
-    
-def brf0_KB12(theta_i, theta_v, phi,RAA_formalism="angular"):
+
+
+def brf0_KB12(theta_i, theta_v, phi, RAA_formalism="angular"):
     """Calculate the r0 of the BRF according to Kokhanovsky and Breon 2012.
     DOI: 10.1109/LgrS.2012.2185775.
     :param theta_i: illumination zenith angle (radians)
@@ -474,14 +479,14 @@ def brf0_KB12(theta_i, theta_v, phi,RAA_formalism="angular"):
     :param RAA_formalism: angular (forward scaterring at 180°) or vectorial (forward scaterring at 0°)
     :return: r0 
     """
-    if RAA_formalism=="angular":
-        new_phi=np.pi-phi
-    elif RAA_formalism=="vectorial":
-        new_phi=phi
+    if RAA_formalism == "angular":
+        new_phi = np.pi-phi
+    elif RAA_formalism == "vectorial":
+        new_phi = phi
     else:
         raise ValueError("Invalid RAA_formalism in brf0")
     theta = np.degrees(np.arccos(-np.cos(theta_i) * np.cos(theta_v) + np.sin(theta_i)
-                      * np.sin(theta_v) * np.cos(new_phi)))
+                                 * np.sin(theta_v) * np.cos(new_phi)))
     phase = 11.1 * np.exp(-0.087 * theta) + 1.1 * np.exp(-0.014 * theta)
     rr = 1.247 + 1.186 * (np.cos(theta_i) + np.cos(theta_v)) + 5.157 * (
         np.cos(theta_i) * np.cos(theta_v)) + phase
@@ -490,7 +495,7 @@ def brf0_KB12(theta_i, theta_v, phi,RAA_formalism="angular"):
     return rr
 
 
-def brf_KB12(wavelengths,theta_i, theta_v, phi, ssa, x=13, M=0,ni="p2016",RAA_formalism="angular"):
+def brf_KB12(wavelengths, theta_i, theta_v, phi, ssa, x=13, M=0, ni="p2016", RAA_formalism="angular"):
     """Calculate snow BRF according to Kokhanovsky and Breon 2012. 
     DOI: 10.1109/LgrS.2012.2185775.
     :param wavelengths: wavelength (m)
@@ -506,7 +511,7 @@ def brf_KB12(wavelengths,theta_i, theta_v, phi, ssa, x=13, M=0,ni="p2016",RAA_fo
     """
 
     # r0 in kokhanovsky's paper
-    r = brf0_KB12(theta_i, theta_v, phi,RAA_formalism=RAA_formalism)
+    r = brf0_KB12(theta_i, theta_v, phi, RAA_formalism=RAA_formalism)
 
     # k0 for theta_v and theta i
     k0v = G(theta_v)
@@ -528,9 +533,9 @@ def brf_KB12(wavelengths,theta_i, theta_v, phi, ssa, x=13, M=0,ni="p2016",RAA_fo
     rr = r * np.exp(-alpha * k0i * k0v / r)
 
     return rr
-    
-    
-def brf_M16(wavelengths, theta_i, theta_v, phi, ssa, impurities=None, ni="p2016", B=default_B, g=default_g,RAA_formalism="angular"):
+
+
+def brf_M16(wavelengths, theta_i, theta_v, phi, ssa, impurities=None, ni="p2016", B=default_B, g=default_g, RAA_formalism="angular"):
     """Formalisme de Malinka et al.2016 avec R0 provenant de Kokhanovsky and Breon 2012
     :param wavelengths: wavelength (m)
     :param theta_i: illumination zenith angle
@@ -546,9 +551,9 @@ def brf_M16(wavelengths, theta_i, theta_v, phi, ssa, impurities=None, ni="p2016"
     :rtype: ndarray    
     
     """
-    R0 = brf0_KB12(theta_i, theta_v, phi,RAA_formalism=RAA_formalism)
+    R0 = brf0_KB12(theta_i, theta_v, phi, RAA_formalism=RAA_formalism)
     w0 = 1 - compute_co_single_scattering_albedo(
-            wavelengths, ssa, impurities, g=g, B=B, ni=ni)
+        wavelengths, ssa, impurities, g=g, B=B, ni=ni)
     y = 4*np.sqrt(np.divide(1-w0, 3*(1-(w0*g))))
 
     theta0 = theta_i
@@ -558,7 +563,7 @@ def brf_M16(wavelengths, theta_i, theta_v, phi, ssa, impurities=None, ni="p2016"
     return Rr
 
 
-def brf_M16_slope(wavelengths, theta_i, theta_v, phi_i, phi_v, slope, aspect, ssa, impurities=None, ni="p2016", B=default_B, g=default_g,RAA_formalism="angular"):
+def brf_M16_slope(wavelengths, theta_i, theta_v, phi_i, phi_v, slope, aspect, ssa, impurities=None, ni="p2016", B=default_B, g=default_g, RAA_formalism="angular"):
     #Formalisme de Malinka et al.2016 avec R0 provenant de kokhanovsky
     """Formalisme de Malinka et al.2016 avec R0 provenant de Kokhanovsky and Breon 2012
     Ajout de la pente par Tuzet F.
@@ -578,14 +583,15 @@ def brf_M16_slope(wavelengths, theta_i, theta_v, phi_i, phi_v, slope, aspect, ss
     :return: BRF
     :rtype: ndarray    
     
-    """   
+    """
     theta_i, theta_v, phi = local_viewing_angle(
         theta_i, phi_i, theta_v, phi_v, slope, aspect)
-    Rr = brf_M16(wavelengths, theta_i, theta_v, phi, ssa, impurities=impurities, ni=ni, B=B, g=g,RAA_formalism=RAA_formalism)
+    Rr = brf_M16(wavelengths, theta_i, theta_v, phi, ssa,
+                 impurities=impurities, ni=ni, B=B, g=g, RAA_formalism=RAA_formalism)
     return Rr
 
 
-def brf_KB12_slope(wavelengths, theta_i, theta_v, phi_i, phi_v, slope, aspect, ssa, x=13, M=0, ni="p2016",RAA_formalism="angular"):
+def brf_KB12_slope(wavelengths, theta_i, theta_v, phi_i, phi_v, slope, aspect, ssa, x=13, M=0, ni="p2016", RAA_formalism="angular"):
     """Calculate snow BRF according to Kokhanovsky and Breon 2012. 
     Slope effect added by Tuzet F
     :param wavelengths: wavelength (m)
@@ -605,7 +611,7 @@ def brf_KB12_slope(wavelengths, theta_i, theta_v, phi_i, phi_v, slope, aspect, s
     theta_i, theta_v, phi = local_viewing_angle(
         theta_i, phi_i, theta_v, phi_v, slope, aspect)
     rr = brf_KB12(wavelengths, theta_i, theta_v,
-                  phi, ssa, x=x, M=M, ni=ni,RAA_formalism=RAA_formalism)
+                  phi, ssa, x=x, M=M, ni=ni, RAA_formalism=RAA_formalism)
     return rr
 
 

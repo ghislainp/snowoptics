@@ -206,8 +206,7 @@ def local_viewing_angle(theta_i, phi_i, theta_v, phi_v, slope, aspect):
     mu_az = np.where(mu_az_denominator != 0, np.divide(
         mu_az_numerator, mu_az_denominator), 0)
 
-    # Garde fou qui prévient d'instabilités numérique étranges autour de -1 et 1
-    np.clip(mu_az, -1, 1, out=mu_az)
+    np.clip(mu_az, -1, 1, out=mu_az) # Prevent from numerical instabilities around -1 and 1
     raa_eff = np.arccos(mu_az)
     return theta_i_eff, theta_v_eff, raa_eff
 

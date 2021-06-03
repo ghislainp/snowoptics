@@ -162,6 +162,28 @@ def extinction_KZ04(wavelengths, rho, ssa, impurities=None, ni="p2016", B=defaul
     return ke
 
 
+def albedo_diffuse_bubbly_ice(wavelengths, a, f, ni="p2016"):
+    """compute diffuse albedo of pure ice without taking into account for the surface reflectance and
+     using the assymptotic radiative transfer theory
+
+    :param a: bubble radius (m)
+    :param f: is bubble fractional volume w/r to total volume (m3/m3). f = n * 4/3 * pi * a**3 if n is the number density of bubbles (m^-3)
+    :param ni: refractive index: dataset name (see refractive_index.py) or an array as a function of wavelength)
+"""
+    if isinstance(ni, str):
+        dataset_name = ni
+        n, ni = refice(wavelengths, dataset_name)
+
+    gG = 0.79  # for spherical bubbles
+
+    absorption = (1 - f) * 4 * np.pi * ni / wavelengths  # ice_absorption coefficient
+
+    y = 4 * np.sqrt(absorption * (4 / 3 * a) / (3 * f * (1 - gG)))
+
+    albedo = np.exp(-y)
+
+    return albedo
+
 #
 # The following is described in Picard et al. 2020
 #

@@ -143,6 +143,18 @@ def compute_b(B, g):
     return 4 / 3 * np.sqrt(B / (1 - g))
 
 
+def compute_g(gG):
+    """Compute the physical asymmetry factor g for the geometric assymetry factor gG
+"""
+    return 0.5 * (1 + gG)
+
+
+def compute_gG(g):
+    """Compute the geometrical asymmetry factor gG for the physical assymetry factor g
+"""
+    return 2 * g - 1
+
+
 def extinction_KZ04(wavelengths, rho, ssa, impurities=None, ni="p2016", B=default_B, g=default_g):
     """compute asymptotic extinction (AFEC) according to Kokhanovsky and Zege theory
 

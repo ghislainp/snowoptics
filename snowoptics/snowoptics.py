@@ -195,13 +195,52 @@ def local_sza(sza, saa, slope, aspect):
     return np.arccos(mu)
 
 
+def local_viewing_angle(theta_i, phi_i, theta_v, phi_v, slope, aspect):
+    """compute the effective viewing angle of incident and observer  as well as the relative azimuth
+    angle between incident and observer for a given slope according to dumont et al.2011
+
+    :param theta_i: Incident zenith angle (radians)
+    :param phi_i: Incident azimuth angle (radians)
+    :param theta_v: Observer zenith angle (radians)
+    :param phi_v: Observer azimuth angle (radians)
+    :param slope: Slope inclination (radians)
+    :param aspect: Slope aspect (radians)
+    """
+    # Local incident zenith angle
+    mu_i = np.cos(theta_i) * np.cos(slope) + np.sin(theta_i) * \
+        np.sin(slope) * np.cos(phi_i - aspect)
+    if mu_i < 0.000001:  # Grazing rasante, instable
+        mu_i = np.nan
+    # Local viewing zenith angle
+    mu_v = np.cos(theta_v) * np.cos(slope) + np.sin(theta_v) * \
+        np.sin(slope) * np.cos(phi_v - aspect)
+
+    theta_i_eff = np.arccos(mu_i)
+    theta_v_eff = np.arccos(mu_v)
+    # Remove part of the polar representation that correspond to an observer behind the slope
+    theta_v_eff = np.where(theta_v_eff > np.radians(90), np.nan, theta_v_eff)
+    # Local relative azimuth angle (dumont et al.2011)
+    mu_az_numerator = (np.cos(theta_v) * np.cos(theta_i) +
+                       np.sin(theta_v) * np.sin(theta_i) * np.cos(phi_v-phi_i)
+                       - mu_i * mu_v)
+    mu_az_denominator = np.sin(theta_i_eff) * np.sin(theta_v_eff)
+    # When illumination or observator is at nadir (in the new referential), set RAA to zero
+    mu_az = np.where(mu_az_denominator != 0, np.divide(
+        mu_az_numerator, mu_az_denominator), 0)
+
+    np.clip(mu_az, -1, 1, out=mu_az)  # Prevent from numerical instabilities around -1 and 1
+    raa_eff = np.arccos(mu_az)
+    return theta_i_eff, theta_v_eff, raa_eff
+
+
 def albedo_direct_KZ04_slope(wavelengths, sza, ssa, impurities=None, ni="p2016", B=default_B, g=default_g, slope=0, aspect=0, saa=0):
     """compute direct albedo with AART include change of local sza due to slope"""
     # BC is in g g-1
     # ajout Marie de l'effet de BC from Kokhanovsky et al., 2013 and Dumont et al., 2017
 
     sza_eff = local_sza(sza, saa, slope, aspect)
-    R = albedo_direct_KZ04(wavelengths, sza_eff, ssa, impurities=impurities, ni=ni, B=B, g=g)
+    R = albedo_direct_KZ04(wavelengths, sza_eff, ssa,
+                           impurities=impurities, ni=ni, B=B, g=g)
     return R
 
 
@@ -401,7 +440,7 @@ def albedo_timeseries_correction(wavelengths, albedo, difftot, sza, saa, constra
     params0 = [0.001, np.pi, *np.mean(albedo, axis=0)]
 
     if constrained:
-        constraints = ({'type': 'eq', 
+        constraints = ({'type': 'eq',
                         'fun': lambda params: params[2:][(wavelengths >= wavelength_range_0[0]) & (wavelengths <= wavelength_range_0[1])] - albedo_0}, )
         result = scipy.optimize.minimize(cost_function, params0,
                                          args=(albedo, difftot, sza, saa, wavelengths), constraints=constraints)
@@ -443,3 +482,208 @@ def compute_sun_position(lon, lat, dts):
         saa.append(float(ephem.Sun(o).az))
 
     return np.array(sza), np.array(saa)
+
+
+def G(theta):  # Or k0 for kokha
+    """Compute the function G of malinka 2016 (also named K in kokhanovsky formalisme)
+    :param theta: angle(radians)
+    """
+    G = (3./7.)*(1+2*np.cos(theta))
+    return G
+
+
+def brf0_KB12(theta_i, theta_v, phi, RAA_formalism="angular"):
+    """Calculate the r0 of the BRF according to Kokhanovsky and Breon 2012.
+    DOI: 10.1109/LgrS.2012.2185775.
+    :param theta_i: illumination zenith angle (radians)
+    :param theta_v: viewing zenith angle (radians)
+    :param RAA: relative azimuth angle (illumination - viewing) (radians)
+    :param RAA_formalism: angular (forward scaterring at 180°) or vectorial (forward scaterring at 0°)
+    :return: r0
+    """
+    if RAA_formalism == "angular":
+        new_phi = np.pi-phi
+    elif RAA_formalism == "vectorial":
+        new_phi = phi
+    else:
+        raise ValueError("Invalid RAA_formalism in brf0")
+    # Clip has been added due to numerical instabilities when the function inside arccos is close to -1 or +1
+    theta = np.degrees(np.arccos(np.clip(-np.cos(theta_i) * np.cos(theta_v) + np.sin(theta_i)
+                                 * np.sin(theta_v) * np.cos(new_phi), -1, 1)))
+    phase = 11.1 * np.exp(-0.087 * theta) + 1.1 * np.exp(-0.014 * theta)
+    rr = 1.247 + 1.186 * (np.cos(theta_i) + np.cos(theta_v)) + 5.157 * (
+        np.cos(theta_i) * np.cos(theta_v)) + phase
+    rr = rr / (4 * (np.cos(theta_i) + np.cos(theta_v)))
+
+    return rr
+
+
+def brf_KB12(wavelengths, theta_i, theta_v, phi, ssa, x=13, M=0, ni="p2016", RAA_formalism="angular"):
+    """Calculate snow BRF according to Kokhanovsky and Breon 2012.
+    DOI: 10.1109/LgrS.2012.2185775.
+    :param wavelengths: wavelength (m)
+    :param theta_i: illumination zenith angle(radians)
+    :param theta_v: viewing zenith angle(radians)
+    :param phi: relative azimuth angle (illumination - viewing)(radians)
+    :param ssa: Specific surface area of snow (kg/m2)
+    :param x: 13, as L = 13d in kokhanovsky's paper
+    :param M: proportional to the mass concentration of pollutants in snow
+    :param ni: refractive index: dataset name (see refractive_index.py) or an array as a function of wavelength)
+    :param RAA_formalism: angular (forward scaterring at 180°) or vectorial (forward scaterring at 0°)
+    :return: BRF
+    """
+
+    # r0 in kokhanovsky's paper
+    r = brf0_KB12(theta_i, theta_v, phi, RAA_formalism=RAA_formalism)
+
+    # k0 for theta_v and theta i
+    k0v = G(theta_v)
+    k0i = G(theta_i)
+
+    # get refractive index
+    if isinstance(ni, str):
+        dataset_name = ni
+        n, ni = refice(wavelengths, dataset_name)
+
+    gamma = 4 * np.pi * (ni + M) / (wavelengths)
+
+    # Alpha = sqrt(gamma * L), with L approximately 13d, where
+    # d is the average optical diameter of snow:
+    # d = 6 / rho_ice * SSA
+    alpha = np.sqrt(gamma * x * 6. / (917 * ssa))
+
+    # r(theta_i, theta_v, phi)
+    rr = r * np.exp(-alpha * k0i * k0v / r)
+
+    return rr
+
+
+def brf_M16(wavelengths, theta_i, theta_v, phi, ssa, impurities=None, ni="p2016", B=default_B, g=default_g, RAA_formalism="angular"):
+    """Formalisme de Malinka et al.2016 avec R0 provenant de Kokhanovsky and Breon 2012
+    :param wavelengths: wavelength (m)
+    :param theta_i: illumination zenith angle
+    :param theta_v: viewing zenith angle
+    :param phi: relative azimuth angle (illumination - viewing)
+    :param ssa: Specific surface area of snow
+    :param impurities: dict with species as key and concentration (kg/kg) as values (or tuple of concentration and bulk density). E.g. {'BC': 10e-9}
+    :param ni: refractive index: dataset name (see refractive_index.py) or an array as a function of wavelength)
+    :param B: absorption enhancement factor in grains
+    :param g: asymmetry factor
+    :param RAA_formalism: angular (forward scaterring at 180°) or vectorial (forward scaterring at 0°)
+    :return: BRF
+    :rtype: ndarray
+
+    """
+    R0 = brf0_KB12(theta_i, theta_v, phi, RAA_formalism=RAA_formalism)
+    w0 = 1 - compute_co_single_scattering_albedo(
+        wavelengths, ssa, impurities, g=g, B=B, ni=ni)
+    y = 4*np.sqrt(np.divide(1-w0, 3*(1-(w0*g))))
+
+    theta0 = theta_i
+    theta = theta_v
+    Y = (y*G(theta0)*G(theta))/R0
+    Rr = R0*np.exp(-Y)
+    return Rr
+
+
+def brf_M16_slope(wavelengths, theta_i, theta_v, phi_i, phi_v, slope, aspect, ssa, impurities=None, ni="p2016", B=default_B, g=default_g, RAA_formalism="angular"):
+    """Formalisme de Malinka et al.2016 avec R0 provenant de Kokhanovsky and Breon 2012
+    Ajout de la pente par Tuzet F.
+    :param wavelengths: wavelength (m)
+    :param theta_i: Incident zenith angle (radians)
+    :param phi_i: Incident azimuth angle (radians)
+    :param theta_v: Observer zenith angle (radians)
+    :param phi_v: Observer azimuth angle (radians)
+    :param slope: Slope inclination (radians)
+    :param aspect: Slope aspect (radians)
+    :param ssa: Specific surface area of snow
+    :param impurities: dict with species as key and concentration (kg/kg) as values (or tuple of concentration and bulk density). E.g. {'BC': 10e-9}
+    :param ni: refractive index: dataset name (see refractive_index.py) or an array as a function of wavelength)
+    :param B: absorption enhancement factor in grains
+    :param g: asymmetry factor
+    :param RAA_formalism: angular (forward scaterring at 180°) or vectorial (forward scaterring at 0°)
+    :return: BRF
+    :rtype: ndarray
+
+    """
+    theta_i, theta_v, phi = local_viewing_angle(
+        theta_i, phi_i, theta_v, phi_v, slope, aspect)
+    Rr = brf_M16(wavelengths, theta_i, theta_v, phi, ssa,
+                 impurities=impurities, ni=ni, B=B, g=g, RAA_formalism=RAA_formalism)
+    return Rr
+
+
+def brf_KB12_slope(wavelengths, theta_i, theta_v, phi_i, phi_v, slope, aspect, ssa, x=13, M=0, ni="p2016", RAA_formalism="angular"):
+    """Calculate snow BRF according to Kokhanovsky and Breon 2012.
+    Slope effect added by Tuzet F
+    :param wavelengths: wavelength (m)
+    :param theta_i: Incident zenith angle (radians)
+    :param phi_i: Incident azimuth angle (radians)
+    :param theta_v: Observer zenith angle (radians)
+    :param phi_v: Observer azimuth angle (radians)
+    :param slope: Slope inclination (radians)
+    :param aspect: Slope aspect (radians)
+    :param ssa: Specific surface area of snow (kg/m2)
+    :param x: 13, as L = 13d in kokhanovsky's paper
+    :param M: proportional to the mass concentration of pollutants in snow
+    :param ni: refractive index: dataset name (see refractive_index.py) or an array as a function of wavelength)
+    :param RAA_formalism: angular (forward scaterring at 180°) or vectorial (forward scaterring at 0°)
+    :return: BRF
+    """
+    theta_i, theta_v, phi = local_viewing_angle(
+        theta_i, phi_i, theta_v, phi_v, slope, aspect)
+    rr = brf_KB12(wavelengths, theta_i, theta_v,
+                  phi, ssa, x=x, M=M, ni=ni, RAA_formalism=RAA_formalism)
+    return rr
+
+
+def albedo_direct_M16(wavelengths, sza, ssa, impurities=None, ni="p2016", B=default_B, g=default_g):
+    """compute albedo using Malinka et al 2016. theory
+
+    :param wavelengths: wavelengths (meter)
+    :param sza: solar zenith angle (radian)
+    :param ssa: snow specific surface area (m2/kg)
+    :param impurities: dict with species as key and concentration (kg/kg) as values (or tuple of concentration and bulk density). E.g. {'BC': 10e-9}
+    :param ni: refractive index: dataset name (see refractive_index.py) or an array as a function of wavelength)
+    :param B: absorption enhancement factor in grains
+    :param g: asymmetry factor
+"""
+    w0 = 1 - compute_co_single_scattering_albedo(
+        wavelengths, ssa, impurities, g=g, B=B, ni=ni)
+    y = 4*np.sqrt(np.divide(1-w0, 3*(1-(w0*g))))
+    theta0 = sza
+    Alb = np.exp(-y*G(theta0))
+    return Alb
+
+
+def albedo_diffuse_M16(wavelengths, ssa, impurities=None, ni="p2016", B=default_B, g=default_g):
+    """compute albedo using Malinka et al 2016. theory
+
+    :param wavelengths: wavelengths (meter)
+    :param ssa: snow specific surface area (m2/kg)
+    :param impurities: dict with species as key and concentration (kg/kg) as values (or tuple of concentration and bulk density). E.g. {'BC': 10e-9}
+    :param ni: refractive index: dataset name (see refractive_index.py) or an array as a function of wavelength)
+    :param B: absorption enhancement factor in grains
+    :param g: asymmetry factor
+"""
+    w0 = 1 - compute_co_single_scattering_albedo(
+        wavelengths, ssa, impurities, g=g, B=B, ni=ni)
+    y = 4*np.sqrt(np.divide(1-w0, 3*(1-(w0*g))))
+    Alb = np.exp(-y)
+    return Alb
+
+
+def albedo_M16(wavelengths, sza, ssa, r_difftot=0, impurities=None, ni="p2016", B=default_B, g=default_g):
+    """compute albedo using Malinka et al 2016. theory
+
+    :param wavelengths: wavelengths (meter)
+    :param sza: solar zenith angle (radian)
+    :param ssa: snow specific surface area (m2/kg)
+    :param r_difftot: ratio diff/tot of the incoming radiation
+    :param impurities: dict with species as key and concentration (kg/kg) as values (or tuple of concentration and bulk density). E.g. {'BC': 10e-9}
+    :param ni: refractive index: dataset name (see refractive_index.py) or an array as a function of wavelength)
+    :param B: absorption enhancement factor in grains
+    :param g: asymmetry factor
+"""
+    return (1 - r_difftot) * albedo_direct_M16(wavelengths, sza, ssa, impurities=impurities, ni=ni, B=B, g=g) + \
+        r_difftot * albedo_diffuse_M16(wavelengths, ssa, impurities=impurities, ni=ni, B=B, g=g)

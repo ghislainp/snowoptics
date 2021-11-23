@@ -187,7 +187,7 @@ def local_viewing_angle(theta_i, phi_i, theta_v, phi_v, slope, aspect):
     # Local incident zenith angle
     mu_i = np.cos(theta_i) * np.cos(slope) + np.sin(theta_i) * \
         np.sin(slope) * np.cos(phi_i - aspect)
-    if mu_i < 0.000001:  # Illumination rasante, instable
+    if mu_i < 0.000001:  # Grazing rasante, instable
         mu_i = np.nan
     # Local viewing zenith angle
     mu_v = np.cos(theta_v) * np.cos(slope) + np.sin(theta_v) * \
@@ -485,8 +485,9 @@ def brf0_KB12(theta_i, theta_v, phi, RAA_formalism="angular"):
         new_phi = phi
     else:
         raise ValueError("Invalid RAA_formalism in brf0")
-    theta = np.degrees(np.arccos(-np.cos(theta_i) * np.cos(theta_v) + np.sin(theta_i)
-                                 * np.sin(theta_v) * np.cos(new_phi)))
+    #Clip has been added due to numerical instabilities when the function inside arccos is close to -1 or +1
+    theta = np.degrees(np.arccos(np.clip(-np.cos(theta_i) * np.cos(theta_v) + np.sin(theta_i)
+                                 * np.sin(theta_v) * np.cos(new_phi),-1,1)))
     phase = 11.1 * np.exp(-0.087 * theta) + 1.1 * np.exp(-0.014 * theta)
     rr = 1.247 + 1.186 * (np.cos(theta_i) + np.cos(theta_v)) + 5.157 * (
         np.cos(theta_i) * np.cos(theta_v)) + phase

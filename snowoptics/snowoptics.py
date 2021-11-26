@@ -496,16 +496,16 @@ def compute_sun_position(lon, lat, dts):
     return np.array(sza), np.array(saa)
 
 
-def G(theta):  # Or k0 for kokha
-    """Compute the function G of malinka 2016 (also named K in kokhanovsky formalisme)
+def G(theta):  # Or k0 for Kokhanovsky
+    """Compute the function G of malinka 2016 (also named K or u in Kokhanovsky formalism)
     :param theta: angle(radians)
     """
-    G = (3./7.)*(1+2*np.cos(theta))
+    G = (3 / 7) * (1 + 2 * np.cos(theta))
     return G
 
 
 def brf0_KB12(theta_i, theta_v, phi, RAA_formalism="angular"):
-    """Calculate the r0 of the BRF according to Kokhanovsky and Breon 2012.
+    """Calculate the r0 of the BRF according to Kokhanovsky and Breon, 2012.
     DOI: 10.1109/LgrS.2012.2185775.
     :param theta_i: illumination zenith angle (radians)
     :param theta_v: viewing zenith angle (radians)
@@ -514,14 +514,14 @@ def brf0_KB12(theta_i, theta_v, phi, RAA_formalism="angular"):
     :return: r0
     """
     if RAA_formalism == "angular":
-        new_phi = np.pi-phi
+        new_phi = np.pi - phi
     elif RAA_formalism == "vectorial":
         new_phi = phi
     else:
         raise ValueError("Invalid RAA_formalism in brf0")
     # Clip has been added due to numerical instabilities when the function inside arccos is close to -1 or +1
-    theta = np.degrees(np.arccos(np.clip(-np.cos(theta_i) * np.cos(theta_v) + np.sin(theta_i)
-                                 * np.sin(theta_v) * np.cos(new_phi), -1, 1)))
+    theta = np.degrees(np.arccos(np.clip(-np.cos(theta_i) * np.cos(theta_v)
+                                         + np.sin(theta_i) * np.sin(theta_v) * np.cos(new_phi), -1, 1)))
     phase = 11.1 * np.exp(-0.087 * theta) + 1.1 * np.exp(-0.014 * theta)
     rr = 1.247 + 1.186 * (np.cos(theta_i) + np.cos(theta_v)) + 5.157 * (
         np.cos(theta_i) * np.cos(theta_v)) + phase

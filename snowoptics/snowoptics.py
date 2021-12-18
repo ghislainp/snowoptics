@@ -8,8 +8,12 @@ import datetime
 
 from .refractive_index import refice, refsoot_imag, refhulis_imag, refdust_imag, MAE_dust_caponi
 import numpy as np
-from numpy.polynomial import Polynomial
+
+from numpy.polynomial import Polynomial, Legendre
+from numpy.polynomial.legendre import legfit
+
 import scipy.optimize
+import scipy.integrate
 
 try:
     import ephem
@@ -497,7 +501,7 @@ def compute_sun_position(lon, lat, dts):
     return np.array(sza), np.array(saa)
 
 
-def G(theta):  # Or k0 for Kokhanovsky
+def EscapceFunction(theta):  # Or k0 for Kokhanovsky
     """Compute the function G of malinka 2016 (also named K or u in Kokhanovsky formalism)
     :param theta: angle(radians)
     """
@@ -521,12 +525,14 @@ def brf0_KB12(theta_i, theta_v, phi, RAA_formalism="angular"):
     else:
         raise ValueError("Invalid RAA_formalism in brf0")
     # Clip has been added due to numerical instabilities when the function inside arccos is close to -1 or +1
-    theta = np.degrees(np.arccos(np.clip(-np.cos(theta_i) * np.cos(theta_v)
+
+    theta = np.rad2deg(np.arccos(np.clip(-np.cos(theta_i) * np.cos(theta_v)
                                          + np.sin(theta_i) * np.sin(theta_v) * np.cos(new_phi), -1, 1)))
+
     phase = 11.1 * np.exp(-0.087 * theta) + 1.1 * np.exp(-0.014 * theta)
     rr = 1.247 + 1.186 * (np.cos(theta_i) + np.cos(theta_v)) + 5.157 * (
         np.cos(theta_i) * np.cos(theta_v)) + phase
-    rr = rr / (4 * (np.cos(theta_i) + np.cos(theta_v)))
+    rr /= 4 * (np.cos(theta_i) + np.cos(theta_v))
 
     return rr
 
@@ -546,12 +552,12 @@ def brf_KB12(wavelengths, theta_i, theta_v, phi, ssa, x=13, M=0, ni="p2016", RAA
     :return: BRF
     """
 
-    # r0 in kokhanovsky's paper
-    r = brf0_KB12(theta_i, theta_v, phi, RAA_formalism=RAA_formalism)
+    # R0 in kokhanovsky's paper
+    R0 = brf0_KB12(theta_i, theta_v, phi, RAA_formalism=RAA_formalism)
 
     # k0 for theta_v and theta i
-    k0v = G(theta_v)
-    k0i = G(theta_i)
+    k0v = EscapceFunction(theta_v)
+    k0i = EscapceFunction(theta_i)
 
     # get refractive index
     if isinstance(ni, str):
@@ -566,19 +572,20 @@ def brf_KB12(wavelengths, theta_i, theta_v, phi, ssa, x=13, M=0, ni="p2016", RAA
     alpha = np.sqrt(gamma * x * 6. / (917 * ssa))
 
     # r(theta_i, theta_v, phi)
-    rr = r * np.exp(-alpha * k0i * k0v / r)
+    rr = R0 * np.exp(-alpha * k0i * k0v / R0)
 
     return rr
 
 
-def brf_M16(wavelengths, theta_i, theta_v, phi, ssa, impurities=None, ni="p2016", B=default_B, g=default_g, RAA_formalism="angular"):
+def brf_M16_KB12(wavelengths, theta_i, theta_v, phi, ssa, impurities=None, ni="p2016", B=default_B, g=default_g, RAA_formalism="angular"):
     """Formalisme de Malinka et al.2016 avec R0 provenant de Kokhanovsky and Breon 2012
     :param wavelengths: wavelength (m)
     :param theta_i: illumination zenith angle
     :param theta_v: viewing zenith angle
     :param phi: relative azimuth angle (illumination - viewing)
     :param ssa: Specific surface area of snow
-    :param impurities: dict with species as key and concentration (kg/kg) as values (or tuple of concentration and bulk density). E.g. {'BC': 10e-9}
+    :param impurities: dict with species as key and concentration (kg/kg) as values (or tuple of concentration and bulk density).
+    E.g. {'BC': 10e-9}
     :param ni: refractive index: dataset name (see refractive_index.py) or an array as a function of wavelength)
     :param B: absorption enhancement factor in grains
     :param g: asymmetry factor
@@ -588,18 +595,18 @@ def brf_M16(wavelengths, theta_i, theta_v, phi, ssa, impurities=None, ni="p2016"
 
     """
     R0 = brf0_KB12(theta_i, theta_v, phi, RAA_formalism=RAA_formalism)
-    w0 = 1 - compute_co_single_scattering_albedo(
-        wavelengths, ssa, impurities, g=g, B=B, ni=ni)
-    y = 4*np.sqrt(np.divide(1-w0, 3*(1-(w0*g))))
+    w0 = 1 - compute_co_single_scattering_albedo(wavelengths, ssa, impurities, g=g, B=B, ni=ni)
+    y = 4 * np.sqrt(np.divide(1 - w0, 3 * (1 - w0 * g)))
 
     theta0 = theta_i
     theta = theta_v
-    Y = (y*G(theta0)*G(theta))/R0
-    Rr = R0*np.exp(-Y)
+    Y = (y * EscapceFunction(theta0) * EscapceFunction(theta)) / R0
+    Rr = R0 * np.exp(-Y)
     return Rr
 
 
-def brf_M16_slope(wavelengths, theta_i, theta_v, phi_i, phi_v, slope, aspect, ssa, impurities=None, ni="p2016", B=default_B, g=default_g, RAA_formalism="angular"):
+def brf_M16_KB12_slope(wavelengths, theta_i, theta_v, phi_i, phi_v, slope, aspect, ssa,
+                       impurities=None, ni="p2016", B=default_B, g=default_g, RAA_formalism="angular"):
     """Formalisme de Malinka et al.2016 avec R0 provenant de Kokhanovsky and Breon 2012
     Ajout de la pente par Tuzet F.
     :param wavelengths: wavelength (m)
@@ -663,10 +670,10 @@ def albedo_direct_M16(wavelengths, sza, ssa, impurities=None, ni="p2016", B=defa
 """
     w0 = 1 - compute_co_single_scattering_albedo(
         wavelengths, ssa, impurities, g=g, B=B, ni=ni)
-    y = 4*np.sqrt(np.divide(1-w0, 3*(1-(w0*g))))
+    y = 4 * np.sqrt(np.divide(1 - w0, 3 * (1 - w0 * g)))
     theta0 = sza
-    Alb = np.exp(-y*G(theta0))
-    return Alb
+    alb = np.exp(-y * EscapceFunction(theta0))
+    return alb
 
 
 def albedo_diffuse_M16(wavelengths, ssa, impurities=None, ni="p2016", B=default_B, g=default_g):
@@ -681,9 +688,9 @@ def albedo_diffuse_M16(wavelengths, ssa, impurities=None, ni="p2016", B=default_
 """
     w0 = 1 - compute_co_single_scattering_albedo(
         wavelengths, ssa, impurities, g=g, B=B, ni=ni)
-    y = 4*np.sqrt(np.divide(1-w0, 3*(1-(w0*g))))
-    Alb = np.exp(-y)
-    return Alb
+    y = 4 * np.sqrt(np.divide(1 - w0, 3 * (1 - w0 * g)))
+    alb = np.exp(-y)
+    return alb
 
 
 def albedo_M16(wavelengths, sza, ssa, r_difftot=0, impurities=None, ni="p2016", B=default_B, g=default_g):
@@ -741,3 +748,266 @@ def assymmetry_M14(n):
     g = r1 + 1 / n**2 * t1**2 / (1 - rin1)
 
     return g
+
+
+def fresnel_coefficients(mu, n):
+    """compute non-polarized Fresnel coefficients
+    """
+    # mu = np.cos(theta)
+
+    mu_t_square = 1 - (1 - mu**2) / n**2
+    mu_t_square[(mu_t_square <= 0) | (~np.isfinite(mu_t_square)) | (mu <= 0)] = 0
+    mu_t = np.sqrt(mu_t_square).real
+
+    rs = (mu - n * mu_t) / (mu + n * mu_t)
+    rp = (n * mu - mu_t) / (n * mu + mu_t)
+
+    R = (np.abs(rs)**2 + np.abs(rp)**2) / 2
+
+    # T = 1 - R
+    return R
+
+
+def phase_M14_exponential_insuffisant(wavelengths, scattering_angle, ni='p2016', RAA_formalism="angular"):
+    """return the phase function according to Malinka 2014 in the random mixture case (Eq (59))
+    """
+
+    # get refractive index
+    if isinstance(ni, str):
+        dataset_name = ni
+        n, ni = refice(wavelengths, dataset_name)
+
+    def integrand0(mu, n):
+        return fresnel_coefficients(mu, n) * mu
+
+    def integrand1(mu, n):
+        return fresnel_coefficients(mu, n) * mu**2
+
+    Tout = 2 * Polynomial([-1, -1, 0, -5, +6, +8, +5])(n) / (3 * Polynomial([1, 1, 1, 1])(n) * (n**4 - 1)) \
+        + n**2 * (n**2 - 1)**2 / (n**2 + 1)**3 * np.log((n + 1) / (n - 1)) \
+        - 8 * n**4 * (n**4 + 1) / ((n**4 - 1)**2 * (n**2 + 1)) * np.log(n)
+
+    Rout = 1 - Tout
+    Rout_integration = 2 * scipy.integrate.romberg(integrand0, 0.0001, 1, args=(n, ), tol=1e-6)  # could be cached because constant for ice
+    # print("reprendre Tdiff dans Malinka 2016, EQ 10 pour Tou")
+    print("rout=", Rout)
+    print("rout=", Rout_integration)
+    # assert np.allclose(Rout, Rout_integration)
+
+    # all this part until <<end could be cached because constant for ice
+    t0 = Tout
+    print("t0=", t0)
+    t1 = Polynomial([-8, -11, -27, -7, -39, +55, -17, +3, +3])(n) / (24 * (n + 1) * (n**4 - 1) * n) \
+        - (n**2 - 1)**4 / (16 * (n**2 + 1)**2 * n) * np.log((n + 1) / (n - 1)) \
+        + 4 * n**5 / (n**4 - 1)**2 * np.log(n)
+    print("t1=", t1)
+
+    rin0 = 1 - (1 - Rout) / n**2  # Eq 49
+    rin0_integration = 2 * scipy.integrate.romberg(integrand0, 0.0001, 1, args=(1 / n, ), tol=1e-6)
+    print(rin0)
+    print(rin0_integration)
+    # assert np.allclose(rin0, rin0_integration)
+
+    r1 = n * Polynomial([-3, 13, -89, 151, 186, 138, -282, +22, +25, +25, +3, +3])(n) / (24 * (n + 1) * (n**4 - 1) * (n**2 + 1)**2) \
+        + 8 * n**4 * (n**6 - 3 * n**4 + n**2 - 1) / ((n**4 - 1)**2 * (n**2 + 1)**2) * np.log(n) \
+        - (Polynomial([1, -4, +54, +12, +1])(n**2)) * (n**2 - 1)**2 / (16 * (n**2 + 1)**4) * np.log((n + 1) / (n - 1))
+    rin1 = r1 / n**4 + t0 * (n**2 - 1) / n**4    # Eq 49
+
+    print("rin0=", rin0)
+    print("rin1=", rin1)
+
+    r1_integration = 2 * scipy.integrate.romberg(integrand1, 0.0001, 1, args=(n, ), tol=1e-6)
+    print("r1=", r1)
+    print("r1=", r1_integration)
+
+    rin1_integration = 2 * scipy.integrate.romberg(integrand1, 0.0001, 1, args=(1 / n, ), tol=1e-6)
+    print(rin1)
+    print(rin1_integration)
+    # <<end
+
+    # now let's implement Eq 59
+    mu = np.cos(scattering_angle)
+    # mu = np.clip(-np.cos(theta_i) * np.cos(theta_v)
+    #             + np.sin(theta_i) * np.sin(theta_v) * np.cos(phi), -1, 1)
+
+    theta_i_m14 = (np.pi - scattering_angle) / 2  # equation 26 in M14. Warning, it is not the same as theta_i here
+
+    Rout_i = fresnel_coefficients(np.cos(theta_i_m14), n)  # air -> ice  # incidence theta_i
+    phase = Rout_i + 1 / n**2 * Legendre([t0**2 / (1 - rin0), 3 * t1**2 / (1 - rin1)])(mu)
+
+    phase = Rout_i + 1 / n**2 * (t0**2 / (1 - rin0_integration) + 3 * t1**2 / (1 - rin1_integration) * mu)
+
+    g = r1 + 1 / n**2 * t1**2 / (1 - rin1)
+    print("g=", g)
+
+    # print("temporaire")
+    #phase = 1 / n**2 * Legendre([t0**2 / (1 - rin0), 3 * t1**2 / (1 - rin1)])(mu)
+
+    #phase = Legendre([1, 3 * 0.85])(mu)
+    return phase
+
+
+def Ft_M14(mu, n, assume_sorted=True):
+
+    # if mu < 1 / n:
+    #    return 0
+
+    if assume_sorted and n > 1:
+        i = np.searchsorted(mu, 1 / n, side='left')
+        Jacobian = n**2 * (n * mu[i:] - 1) * (n - mu[i:]) / (np.pi * (n**2 - 2 * n * mu[i:] + 1)**2)  # Eq 32
+
+        mu_i = np.sqrt(1 / (1 + (1 - mu[i:]**2) / (mu[i:] - 1 / n)**2))  # Eq 31 reworked
+        Ft = np.concatenate((np.zeros(i), (1 - fresnel_coefficients(mu_i, n)) * Jacobian))
+        assert Ft.size == mu.size
+    else:
+        Jacobian = n**2 * (n * mu - 1) * (n - mu) / (np.pi * (n**2 - 2 * n * mu + 1)**2)  # Eq 32
+
+        # mu_i = np.sqrt((mu - 1 / n)**2 / ((mu - 1 / n)**2 + (1 - mu**2)))  # Eq 31 reworked
+        mu_i = np.sqrt(1 / (1 + (1 - mu**2) / (mu - 1 / n)**2))  # Eq 31 reworked
+        Ft = np.where(mu <= 1 / n, 0, (1 - fresnel_coefficients(mu_i, n)) * Jacobian)
+    return Ft
+
+
+def Fr_M14(mu, n):
+    Jacobian = 1 / (4 * np.pi)
+
+    mu_i = np.cos(0.5 * (np.pi - np.arccos(mu)))  # Eq 26
+
+    return fresnel_coefficients(mu_i, n) * Jacobian  # Equ 28 and 29
+
+
+def phase_M14_exponential(wavelengths, scattering_angle, pmax=50, ni='p2016', RAA_formalism="angular"):
+    """return the phase function according to Malinka 2014 in the random mixture case (Eq (59))
+    """
+
+    from numpy.polynomial.legendre import legfit
+
+    # get refractive index
+    if isinstance(ni, str):
+        dataset_name = ni
+        n, ni = refice(wavelengths, dataset_name)
+
+    lmu = np.linspace(-1, 1, 10000)
+    norm = 1 / (2 * np.arange(pmax + 1) + 1)
+
+    tout = 4 * np.pi * legfit(lmu, Ft_M14(lmu, n), pmax) * norm
+    rin = 4 * np.pi * legfit(lmu, Fr_M14(lmu, 1 / n), pmax) * norm
+
+    debug = False
+
+    if debug:
+        rout = 4 * np.pi * legfit(lmu, Fr_M14(lmu, n), pmax) * norm
+
+        from functools import partial
+        # by integration
+
+        def integrand_refl(p, mu, n):
+            assert p <= 1
+            return Fr_M14(mu, n) * mu**p
+
+        # by integration
+        def integrand_refl_2ndintegrale(p, mu_i, n):
+            assert p <= 1
+            return fresnel_coefficients(mu_i, n) * mu_i**(p + 1)
+
+        def integrand_trans(p, mu, n):
+            assert p <= 1
+            return Ft_M14(mu, n) * mu**p
+
+        rout_integration = [2 * np.pi * scipy.integrate.romberg(partial(integrand_refl, p), -1, 1, args=(n, ), tol=1e-6)
+                            for p in range(2)]
+        print("rout_integration=", rout_integration[0:5])
+        rout_integration2 = [2 * scipy.integrate.romberg(partial(integrand_refl_2ndintegrale, p), 0.0001, 1, args=(n, ), tol=1e-6)
+                             for p in range(2)]
+        print("rout2=", rout_integration2[0:5])
+        print("rout=", rout)
+
+        print("------")
+        tout_integration = [2 * np.pi * scipy.integrate.romberg(partial(integrand_trans, p), 1 / n, 1, args=(n, ), tol=1e-6)
+                            for p in range(2)]
+        print("tout_integration=", tout_integration[0:5])
+
+        print("tout=", tout)
+
+        rin_integration = [2 * scipy.integrate.romberg(partial(integrand_refl_2ndintegrale, p), 0.0001, 1, args=(1 / n, ), tol=1e-6)
+                           for p in range(2)]
+        print("rin_integration", rin_integration[0:5])
+
+        print("rin=", rin)
+
+    # now let's implement Eq 59
+    mu = np.cos(scattering_angle)
+
+    theta_i_m14 = (np.pi - scattering_angle) / 2  # equation 26 in M14. Warning, it is not the same as theta_i here
+
+    Rout_i = fresnel_coefficients(np.cos(theta_i_m14), n)  # air -> ice  # incidence theta_i
+    phase = Rout_i + 1 / n**2 * Legendre([(2 * p + 1) * tout[p]**2 / (1 - rin[p]) for p in range(pmax)])(mu)
+
+    if debug:
+        g = rout[1] + 1 / n**2 * tout[1]**2 / (1 - rin[1])
+        print("g=", g)
+
+    return phase
+
+
+def brf0_M14_exponential(wavelengths, theta_i, theta_v, phi, ni='p2016', RAA_formalism="angular"):
+
+    mu = np.linspace(-1, 1, 180)
+    scattering_angle = np.arccos(mu)
+
+    mmax = 50
+    phase = phase_M14_exponential(wavelengths, scattering_angle, pmax=mmax, ni=ni, RAA_formalism=RAA_formalism)
+
+    # there is a simplier way since phase_M14_exponential is a sum of legendre polynomon + the first term Rout_i.
+    # The latter is related to r0 and ri (to be determine how exactly with theta_i_m14)
+
+    legendre1 = legfit(mu, phase, mmax)
+    # print("legendre1=", legendre1[0], legendre1[1] / 3)
+
+    from mishchenko_brf import brf
+    res = brf(1.0, legendre1, mmax=mmax, stdout=False)
+
+    return res.brf(theta_i, theta_v, phi, mmax=mmax)  # .squeeze()
+
+
+def brf_M16_M14(wavelengths, theta_i, theta_v, phi, ssa, impurities=None,
+                ni="p2016", B=default_B, g=default_g, RAA_formalism="angular",
+                G=None):
+    """Formalisme de Malinka et al.2016 avec R0 provenant BK12 avec la fonction de phase de Malinka 2014
+    :param wavelengths: wavelength (m)
+    :param theta_i: illumination zenith angle
+    :param theta_v: viewing zenith angle
+    :param phi: relative azimuth angle (illumination - viewing)
+    :param ssa: Specific surface area of snow
+    :param impurities: dict with species as key and concentration (kg/kg) as values (or tuple of concentration and bulk density).
+    E.g. {'BC': 10e-9}
+    :param ni: refractive index: dataset name (see refractive_index.py) or an array as a function of wavelength)
+    :param B: absorption enhancement factor in grains
+    :param g: asymmetry factor
+    :param RAA_formalism: angular (forward scaterring at 180°) or vectorial (forward scaterring at 0°)
+    :return: BRF
+    :rtype: ndarray
+
+    """
+
+    if RAA_formalism == "angular":
+        phi = np.pi - phi
+    elif RAA_formalism == "vectorial":
+        phi = phi
+    else:
+        raise ValueError("Invalid RAA_formalism in brf0")
+
+    R0 = brf0_M14_exponential(wavelengths, theta_i, theta_v, phi, RAA_formalism=RAA_formalism)
+    w0 = 1 - compute_co_single_scattering_albedo(wavelengths, ssa, impurities, g=g, B=B, ni=ni)
+    y = 4 * np.sqrt(np.divide(1 - w0, 3 * (1 - w0 * g)))
+
+    theta0 = theta_i
+    theta = theta_v
+
+    if G is None:
+        G = EscapceFunction
+    Y = (y * G(theta0) * G(theta)) / R0
+    Rr = R0 * np.exp(-Y)
+
+    return Rr
+

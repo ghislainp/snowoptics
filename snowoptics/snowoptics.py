@@ -8,6 +8,7 @@ import datetime
 
 from .refractive_index import refice, refsoot_imag, refhulis_imag, refdust_imag, MAE_dust_caponi
 import numpy as np
+from numpy.polynomial import Polynomial
 import scipy.optimize
 
 try:
@@ -699,3 +700,44 @@ def albedo_M16(wavelengths, sza, ssa, r_difftot=0, impurities=None, ni="p2016", 
 """
     return (1 - r_difftot) * albedo_direct_M16(wavelengths, sza, ssa, impurities=impurities, ni=ni, B=B, g=g) + \
         r_difftot * albedo_diffuse_M16(wavelengths, ssa, impurities=impurities, ni=ni, B=B, g=g)
+
+
+def transmission_reflection_first_orders_M14(n):
+    """return the two first coefficients of the legendre polynomial expansion of the transmission and reflection coefficients
+    as calculated by Malinka 2014
+
+    :param n: refraction index
+"""
+
+    Tout = 2 * Polynomial([-1, -1, 0, -5, +6, +8, +5])(n) / (3 * Polynomial([1, 1, 1, 1])(n) * (n**4 - 1)) \
+        + n**2 * (n**2 - 1)**2 / (n**2 + 1)**3 * np.log((n + 1) / (n - 1)) \
+        - 8 * n**4 * (n**4 + 1) / ((n**4 - 1)**2 * (n**2 + 1)) * np.log(n)  # Eq 19
+
+    Rout = 1 - Tout  # Eq 18
+
+    t0 = Tout
+    r0 = Rout
+
+    rin0 = 1 - (1 - Rout) / n**2  # Eq 49
+
+    t1 = Polynomial([-8, -11, -27, -7, -39, +55, -17, +3, +3])(n) / (24 * (n + 1) * (n**4 - 1) * n) \
+        - (n**2 - 1)**4 / (16 * (n**2 + 1)**2 * n) * np.log((n + 1) / (n - 1)) \
+        + 4 * n**5 / (n**4 - 1)**2 * np.log(n)  # Eq 42
+
+    r1 = n * Polynomial([-3, 13, -89, 151, 186, 138, -282, +22, +25, +25, +3, +3])(n) / (24 * (n + 1) * (n**4 - 1) * (n**2 + 1)**2) \
+        + 8 * n**4 * (n**6 - 3 * n**4 + n**2 - 1) / ((n**4 - 1)**2 * (n**2 + 1)**2) * np.log(n) \
+        - (Polynomial([1, -4, +54, +12, +1])(n**2)) * (n**2 - 1)**2 / (16 * (n**2 + 1)**4) * np.log((n + 1) / (n - 1))  # Eq 29
+
+    rin1 = r1 / n**4 + t0 * (n**2 - 1) / n**4    # Eq 49
+
+    return r0, rin0, t0, r1, rin1, t1
+
+
+def assymmetry_M14(n):
+    """return the asymmetry factor g from Malinka 2014
+"""
+    r0, rin0, t0, r1, rin1, t1 = transmission_reflection_first_orders_M14(n)
+
+    g = r1 + 1 / n**2 * t1**2 / (1 - rin1)
+
+    return g

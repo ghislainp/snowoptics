@@ -501,7 +501,7 @@ def compute_sun_position(lon, lat, dts):
     return np.array(sza), np.array(saa)
 
 
-def EscapceFunction(theta):  # Or k0 for Kokhanovsky
+def EscapeFunction(theta):  # Or k0 for Kokhanovsky
     """Compute the function G of malinka 2016 (also named K or u in Kokhanovsky formalism)
     :param theta: angle(radians)
     """
@@ -556,8 +556,8 @@ def brf_KB12(wavelengths, theta_i, theta_v, phi, ssa, x=13, M=0, ni="p2016", RAA
     R0 = brf0_KB12(theta_i, theta_v, phi, RAA_formalism=RAA_formalism)
 
     # k0 for theta_v and theta i
-    k0v = EscapceFunction(theta_v)
-    k0i = EscapceFunction(theta_i)
+    k0v = EscapeFunction(theta_v)
+    k0i = EscapeFunction(theta_i)
 
     # get refractive index
     if isinstance(ni, str):
@@ -600,7 +600,7 @@ def brf_M16_KB12(wavelengths, theta_i, theta_v, phi, ssa, impurities=None, ni="p
 
     theta0 = theta_i
     theta = theta_v
-    Y = (y * EscapceFunction(theta0) * EscapceFunction(theta)) / R0
+    Y = (y * EscapeFunction(theta0) * EscapeFunction(theta)) / R0
     Rr = R0 * np.exp(-Y)
     return Rr
 
@@ -672,7 +672,7 @@ def albedo_direct_M16(wavelengths, sza, ssa, impurities=None, ni="p2016", B=defa
         wavelengths, ssa, impurities, g=g, B=B, ni=ni)
     y = 4 * np.sqrt(np.divide(1 - w0, 3 * (1 - w0 * g)))
     theta0 = sza
-    alb = np.exp(-y * EscapceFunction(theta0))
+    alb = np.exp(-y * EscapeFunction(theta0))
     return alb
 
 
@@ -1005,7 +1005,7 @@ def brf_M16_M14(wavelengths, theta_i, theta_v, phi, ssa, impurities=None,
     theta = theta_v
 
     if G is None:
-        G = EscapceFunction
+        G = EscapeFunction
     Y = (y * G(theta0) * G(theta)) / R0
     Rr = R0 * np.exp(-Y)
 

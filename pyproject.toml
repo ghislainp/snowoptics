@@ -1,14 +1,14 @@
 [tool.poetry]
 name = "snowoptics"
-version = "0.99"
+version = "0.99.1"
 description = "Set of functions to compute spectral albedo and extinction of snow, and to correct albedo measurements from slope distortion."
 authors = ["Ghislain Picard <ghislain.picard@univ-grenoble-alpes.fr>"]
 license = "MIT"
 
 [tool.poetry.dependencies]
-python = ">=3.6"
-numpy = ">=1.10"
-scipy = ">=1.0"
+python = ">=3.10"
+numpy = ">=2"
+scipy = ">=1"
 
 [tool.poetry.dev-dependencies]
 

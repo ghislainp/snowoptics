@@ -26,7 +26,16 @@ default_B = 1.6
 default_g = 0.845
 
 
-def albedo_KZ04(wavelengths, sza, ssa, r_difftot=0, impurities=None, ni="p2016", B=default_B, g=default_g):
+def albedo_KZ04(wavelengths,
+                sza,
+                ssa,
+                r_difftot=0,
+                impurities=None,
+                ni="p2016",
+                B=default_B,
+                g=default_g,
+                singscatt_approximation=True):
+
     """compute albedo using Kokhanovsky and Zege 2004 (ART) theory
 
     :param wavelengths: wavelengths (meter)
@@ -38,12 +47,19 @@ def albedo_KZ04(wavelengths, sza, ssa, r_difftot=0, impurities=None, ni="p2016",
     :param B: absorption enhancement factor in grains
     :param g: asymmetry factor
 """
+    kwargs = dict(impurities=impurities, ni=ni, B=B, g=g, singscatt_approximation=singscatt_approximation)
 
-    return (1 - r_difftot) * albedo_direct_KZ04(wavelengths, sza, ssa, impurities=impurities, ni=ni, B=B, g=g) + \
-        r_difftot * albedo_diffuse_KZ04(wavelengths, ssa, impurities=impurities, ni=ni, B=B, g=g)
+    return (1 - r_difftot) * albedo_direct_KZ04(wavelengths, sza, ssa, **kwargs) + \
+        r_difftot * albedo_diffuse_KZ04(wavelengths, ssa, **kwargs)
 
 
-def albedo_diffuse_KZ04(wavelengths, ssa, impurities=None, ni="p2016", B=default_B, g=default_g):
+def albedo_diffuse_KZ04(wavelengths,
+                        ssa,
+                        impurities=None,
+                        ni="p2016",
+                        B=default_B,
+                        g=default_g,
+                        singscatt_approximation=True):
     """compute diffuse albedo using Kokhanovsky and Zege 2004 (ART) theory and considering BC impurities from Kokhanovsky et al., 2013.
 
     :param wavelengths: wavelengths (meter)
@@ -53,12 +69,19 @@ def albedo_diffuse_KZ04(wavelengths, ssa, impurities=None, ni="p2016", B=default
     :param B: absorption enhancement factor in grains
     :param g: asymmetry factor
 """
-    alpha = compute_alpha(wavelengths, ssa, impurities=impurities, ni=ni, B=B, g=g)
+    alpha = compute_alpha(wavelengths, ssa, impurities=impurities, ni=ni, B=B, g=g, singscatt_approximation=singscatt_approximation)
     R = np.exp(-np.sqrt(alpha))
     return R
 
 
-def albedo_direct_KZ04(wavelengths, sza, ssa, impurities=None, ni="p2016", B=default_B, g=default_g):
+def albedo_direct_KZ04(wavelengths,
+                       sza,
+                       ssa,
+                       impurities=None,
+                       ni="p2016",
+                       B=default_B,
+                       g=default_g,
+                       singscatt_approximation=True):
     """compute direct albedo using Kokhanovsky and Zege 2004 (ART) theory and considering BC impurities from Kokhanovsky et al., 2013
 
     :param wavelengths: wavelengths (meter)
@@ -70,38 +93,63 @@ def albedo_direct_KZ04(wavelengths, sza, ssa, impurities=None, ni="p2016", B=def
     :param g: asymmetry factor
 """
 
-    alpha = compute_alpha(wavelengths, ssa, impurities=impurities, ni=ni, B=B, g=g)
+    alpha = compute_alpha(wavelengths, ssa, impurities=impurities, ni=ni, B=B, g=g, singscatt_approximation=singscatt_approximation)
     cos_sza = np.cos(sza)
     assert cos_sza >= 0  # a negative value is probably because sza is not in radian
-    R = np.exp(-np.sqrt(alpha) * 3.0 / 7 * (1 + 2 * cos_sza))
+    R = np.exp(-np.sqrt(alpha) * (3.0 / 7) * (1 + 2 * cos_sza))
     return R
 
 
-def compute_alpha(wavelengths, ssa, impurities=None, ni="p2016", B=default_B, g=default_g):
+def compute_alpha(wavelengths, ssa, impurities=None, ni="p2016", B=default_B, g=default_g, singscatt_approximation=True):
     """compute alpha for the effect of BC from Kokhanovsky et al., 2013 (see also Dumont et al., 2017 or Picard et al. 2020)
 """
 
-    cossalb = compute_co_single_scattering_albedo(wavelengths, ssa, impurities=impurities, ni=ni, B=B, g=g)
+    cossalb, g = compute_single_scattering_properties(wavelengths, ssa,
+                                                      impurities=impurities,
+                                                      ni=ni, B=B, g=g, singscatt_approximation=singscatt_approximation)
 
     alpha = 16. / 3 * cossalb / (1 - g)
     return alpha
 
+    nr, ni = snowoptics.refractive_index.refice2016(wls)
 
-def compute_co_single_scattering_albedo(wavelengths, ssa, impurities=None, ni="p2016", B=default_B, g=default_g):
-    """compute the co single scattering albedo
+
+def compute_single_scattering_properties(wavelengths,
+                                         ssa,
+                                         impurities=None,
+                                         ni="p2016",
+                                         B=default_B,
+                                         g=default_g,
+                                         singscatt_approximation=True):
+    """compute the co single scattering albedo and adjust the assymmetry factor
 """
 
     if isinstance(ni, str):
         dataset_name = ni
-        n, ni = refice(wavelengths, dataset_name)
+        nr, ni = refice(wavelengths, dataset_name)
 
     gamma = 4 * np.pi * ni / wavelengths  # ice absorption
 
     rho_ice = 917.0
-    cossalb = 2.0 / (ssa * rho_ice) * B * gamma  # co single scattering albedo
+
+    if singscatt_approximation:
+        cossalb = 2.0 / (ssa * rho_ice) * B * gamma  # co single scattering albedo
+    else:
+        y0 = 0.728
+        y = y0 + 0.752 * (nr - 1.3)
+
+        c = 6.0 * gamma / (rho_ice * ssa)
+        g00 = g - 0.38 * (nr - 1.3)
+        ginf = 0.9751 - 0.105 * (nr - 1.3)
+        g = ginf - (ginf - g00) * np.exp(-y * c)
+
+        W0 = 0.0611
+        W = W0 + 0.17 * (nr - 1.3)
+        phi = 2.0 / 3 * B / (1 - W)
+        cossalb = 0.5 * (1 - W) * (1 - np.exp(-c * phi))
 
     if impurities is None:
-        return cossalb
+        return cossalb, g
 
     for species in impurities:
 
@@ -137,7 +185,7 @@ def compute_co_single_scattering_albedo(wavelengths, ssa, impurities=None, ni="p
 
         cossalb += 2.0 / ssa * content_impurities * MAC
 
-    return cossalb
+    return cossalb, g
 
 
 def compute_b(B, g):
@@ -172,7 +220,7 @@ def extinction_KZ04(wavelengths, rho, ssa, impurities=None, ni="p2016", B=defaul
     :param g: asymmetry factor
 """
 
-    cossalb = compute_co_single_scattering_albedo(wavelengths, ssa, impurities=impurities, ni=ni, B=B, g=g)
+    cossalb, g = compute_single_scattering_properties(wavelengths, ssa, impurities=impurities, ni=ni, B=B, g=g)
 
     sigext = rho * ssa / 2.0
     ke = sigext * np.sqrt(3 * cossalb * (1 - g))
@@ -408,7 +456,7 @@ def albedo_timeseries_correction(wavelengths, albedo, difftot, sza, saa, constra
     :param albedo: timeseries of albedos. Must be a list of array or 2D array. The second dimension is the same as that of the wavelengths.
     :param difftot: timeseries of diffuse over total ratios. Must be a list of array or 2D array. The second dimension is the same as that of the wavelengths.
     :param sza: timeseries of solar zenith angle (radian). The length is equal to the first dimension of the albedo array.
-    :param saa: timeseries of solar aimuth angle (radian). The length is equal to the first dimension of the albedo array.
+    :param saa: timeseries of solar azimuth angle (radian). The length is equal to the first dimension of the albedo array.
     :param constrained: whether to use the constrained or unconstrained method (see Picard et al. 2020)
     :param wavelength_range_0: len-2 tuple with minimum and maximum wavelengths to use for the constraint, when constrained=True
     :param albedo_0: albedo value to constrain, when constrained=True
@@ -595,7 +643,8 @@ def brf_M16_KB12(wavelengths, theta_i, theta_v, phi, ssa, impurities=None, ni="p
 
     """
     R0 = brf0_KB12(theta_i, theta_v, phi, RAA_formalism=RAA_formalism)
-    w0 = 1 - compute_co_single_scattering_albedo(wavelengths, ssa, impurities, g=g, B=B, ni=ni)
+    cossalb, g = compute_single_scattering_properties(wavelengths, ssa, impurities, g=g, B=B, ni=ni)
+    w0 = 1 - cossalb
     y = 4 * np.sqrt(np.divide(1 - w0, 3 * (1 - w0 * g)))
 
     theta0 = theta_i
@@ -668,8 +717,8 @@ def albedo_direct_M16(wavelengths, sza, ssa, impurities=None, ni="p2016", B=defa
     :param B: absorption enhancement factor in grains
     :param g: asymmetry factor
 """
-    w0 = 1 - compute_co_single_scattering_albedo(
-        wavelengths, ssa, impurities, g=g, B=B, ni=ni)
+    cossalb, g = compute_single_scattering_properties(wavelengths, ssa, impurities, g=g, B=B, ni=ni)
+    w0 = 1 - cossalb
     y = 4 * np.sqrt(np.divide(1 - w0, 3 * (1 - w0 * g)))
     theta0 = sza
     alb = np.exp(-y * EscapeFunction(theta0))
@@ -686,8 +735,8 @@ def albedo_diffuse_M16(wavelengths, ssa, impurities=None, ni="p2016", B=default_
     :param B: absorption enhancement factor in grains
     :param g: asymmetry factor
 """
-    w0 = 1 - compute_co_single_scattering_albedo(
-        wavelengths, ssa, impurities, g=g, B=B, ni=ni)
+    cossalb, g = compute_single_scattering_properties(wavelengths, ssa, impurities, g=g, B=B, ni=ni)
+    w0 = 1 - cossalb
     y = 4 * np.sqrt(np.divide(1 - w0, 3 * (1 - w0 * g)))
     alb = np.exp(-y)
     return alb
@@ -998,7 +1047,8 @@ def brf_M16_M14(wavelengths, theta_i, theta_v, phi, ssa, impurities=None,
         raise ValueError("Invalid RAA_formalism in brf0")
 
     R0 = brf0_M14_exponential(wavelengths, theta_i, theta_v, phi, RAA_formalism=RAA_formalism)
-    w0 = 1 - compute_co_single_scattering_albedo(wavelengths, ssa, impurities, g=g, B=B, ni=ni)
+    cossalb, g = compute_single_scattering_properties(wavelengths, ssa, impurities, g=g, B=B, ni=ni)
+    w0 = 1 - cossalb
     y = 4 * np.sqrt(np.divide(1 - w0, 3 * (1 - w0 * g)))
 
     theta0 = theta_i
@@ -1010,4 +1060,3 @@ def brf_M16_M14(wavelengths, theta_i, theta_v, phi, ssa, impurities=None,
     Rr = R0 * np.exp(-Y)
 
     return Rr
-
